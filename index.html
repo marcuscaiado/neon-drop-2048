@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Neon Drop 2048 🧩✨</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; touch-action:none; user-select:none; }
+    body { background:#080a14; color:#fff; font-family:'Segoe UI',sans-serif; overflow:hidden; display:flex; justify-content:center; align-items:center; height:100vh; }
+    #canvas-container { position:relative; width:100vw; height:100vh; max-width:550px; max-height:800px; aspect-ratio:9/16; }
+    canvas { width:100%; height:100%; display:block; background:#080a14; }
+    .arcade-nav { position:absolute; top:16px; right:16px; z-index:100; background:rgba(0,0,0,0.7); border:2px solid #b967ff; color:#b967ff; padding:8px 16px; border-radius:8px; font-weight:bold; text-decoration:none; font-size:13px; box-shadow:0 0 15px rgba(185,103,255,0.4); }
+    .hud { position:absolute; top:16px; left:16px; font-family:monospace; font-size:20px; font-weight:bold; color:#b967ff; text-shadow:0 0 10px #b967ff; pointer-events:none; }
+    #modal { position:absolute; inset:0; background:rgba(0,0,0,0.85); display:none; flex-direction:column; align-items:center; justify-content:center; gap:16px; z-index:200; }
+    #modal h1 { color:#b967ff; font-size:42px; text-shadow:0 0 20px #b967ff; }
+    .btn { background:linear-gradient(135deg,#b967ff,#00f5ff); border:none; color:#000; padding:12px 32px; font-size:18px; font-weight:bold; border-radius:8px; cursor:pointer; text-decoration:none; box-shadow:0 0 20px rgba(185,103,255,0.5); }
+  </style>
+</head>
+<body>
+  <div id="canvas-container">
+    <a href="https://marcuscaiado.github.io/marcus-arcade/" class="arcade-nav">🕹️ Arcade Hub</a>
+    <div class="hud">SCORE: <span id="score-val">0</span> | NEXT: <span id="next-val">2</span></div>
+    <canvas id="gameCanvas" width="550" height="800"></canvas>
+    <div id="modal">
+      <h1 id="modal-title">JAR FULL! 💥</h1>
+      <p style="font-size:20px;">FINAL SCORE: <span id="final-score">0</span></p>
+      <button class="btn" onclick="restartGame()">DROP AGAIN 🔄</button>
+      <a href="https://marcuscaiado.github.io/marcus-arcade/" class="btn" style="background:#222; color:#fff; border:1px solid #b967ff;">ARCADE HUB 🕹️</a>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // Audio
+    let audioCtx = null;
+    function getAudio() { if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); return audioCtx; }
+    function playPop(freq, dur) {
+      try {
+        const c = getAudio(); const osc = c.createOscillator(); const g = c.createGain();
+        osc.frequency.value = freq; g.gain.setValueAtTime(0.12, c.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.01, c.currentTime + dur);
+        osc.connect(g); g.connect(c.destination); osc.start(); osc.stop(c.currentTime + dur);
+      } catch(e){}
+    }
+
+    const ORB_CONFIG = {
+      2:    { r: 18, color: '#00f5ff' },
+      4:    { r: 24, color: '#05ffa1' },
+      8:    { r: 30, color: '#ffff00' },
+      16:   { r: 38, color: '#ffa502' },
+      32:   { r: 46, color: '#ff4757' },
+      64:   { r: 54, color: '#ff007f' },
+      128:  { r: 62, color: '#b967ff' },
+      256:  { r: 70, color: '#70a1ff' },
+      512:  { r: 80, color: '#2ed573' },
+      1024: { r: 92, color: '#eccc68' },
+      2048: { r: 105, color: '#ffffff' }
+    };
+
+    let score = 0, nextVal = 2, isGameOver = false;
+    let aimX = 275, canDrop = true;
+    let orbs = [], particles = [];
+
+    const setAim = (cx) => {
+      const rect = canvas.getBoundingClientRect();
+      aimX = Math.max(50, Math.min(500, ((cx - rect.left) / rect.width) * 550));
+    };
+
+    function triggerDrop() {
+      if (!canDrop || isGameOver) return;
+      canDrop = false;
+      orbs.push({
+        x: aimX,
+        y: 80,
+        vx: 0,
+        vy: 1,
+        val: nextVal,
+        r: ORB_CONFIG[nextVal].r
+      });
+      playPop(300, 0.08);
+
+      nextVal = [2, 4, 8, 16][Math.floor(Math.random() * 4)];
+      document.getElementById('next-val').textContent = nextVal;
+
+      setTimeout(() => canDrop = true, 450);
+    }
+
+    window.addEventListener('mousemove', e => setAim(e.clientX));
+    window.addEventListener('click', triggerDrop);
+
+    window.addEventListener('touchmove', e => { e.preventDefault(); setAim(e.touches[0].clientX); }, { passive:false });
+    window.addEventListener('touchend', e => { e.preventDefault(); triggerDrop(); }, { passive:false });
+
+    function restartGame() {
+      score = 0; nextVal = 2; orbs = []; particles = []; isGameOver = false;
+      document.getElementById('score-val').textContent = '0';
+      document.getElementById('next-val').textContent = '2';
+      document.getElementById('modal').style.display = 'none';
+      requestAnimationFrame(loop);
+    }
+
+    function loop() {
+      if (isGameOver) return;
+
+      // Physics update
+      const gravity = 0.35, bounce = 0.3, friction = 0.985;
+      const leftWall = 30, rightWall = 520, floor = 760;
+
+      for (let i = 0; i < orbs.length; i++) {
+        const o = orbs[i];
+        o.vy += gravity;
+        o.x += o.vx;
+        o.y += o.vy;
+        o.vx *= friction;
+
+        // Walls
+        if (o.x - o.r < leftWall) { o.x = leftWall + o.r; o.vx *= -bounce; }
+        if (o.x + o.r > rightWall) { o.x = rightWall - o.r; o.vx *= -bounce; }
+        if (o.y + o.r > floor) { o.y = floor - o.r; o.vy *= -bounce; o.vx *= 0.95; }
+
+        // Top limit (Game Over)
+        if (o.y - o.r < 110 && Math.abs(o.vy) < 0.2) {
+          isGameOver = true;
+          playPop(120, 0.4);
+          document.getElementById('final-score').textContent = score;
+          document.getElementById('modal').style.display = 'flex';
+          return;
+        }
+
+        // Orb vs Orb Collisions
+        for (let j = i + 1; j < orbs.length; j++) {
+          const o2 = orbs[j];
+          const dx = o2.x - o.x;
+          const dy = o2.y - o.y;
+          const dist = Math.hypot(dx, dy);
+          const minDist = o.r + o2.r;
+
+          if (dist < minDist) {
+            // Check Merge
+            if (o.val === o2.val && o.val < 2048) {
+              const newVal = o.val * 2;
+              score += newVal;
+              document.getElementById('score-val').textContent = score;
+              playPop(400 + Math.log2(newVal) * 80, 0.15);
+
+              // Spawn merge particles
+              for (let p=0; p<8; p++) {
+                particles.push({ x: (o.x+o2.x)/2, y: (o.y+o2.y)/2, vx:(Math.random()-0.5)*8, vy:(Math.random()-0.5)*8, color: ORB_CONFIG[newVal].color, life:1 });
+              }
+
+              o.val = newVal;
+              o.r = ORB_CONFIG[newVal].r;
+              o.x = (o.x + o2.x) / 2;
+              o.y = (o.y + o2.y) / 2;
+              o.vy = -3;
+
+              orbs.splice(j, 1);
+              break;
+            } else {
+              // Elastic Push
+              const overlap = minDist - dist;
+              const nx = dx / dist;
+              const ny = dy / dist;
+              o.x -= nx * overlap * 0.5;
+              o.y -= ny * overlap * 0.5;
+              o2.x += nx * overlap * 0.5;
+              o2.y += ny * overlap * 0.5;
+
+              const relVel = (o.vx - o2.vx) * nx + (o.vy - o2.vy) * ny;
+              if (relVel > 0) {
+                o.vx -= nx * relVel * 0.5;
+                o.vy -= ny * relVel * 0.5;
+                o2.vx += nx * relVel * 0.5;
+                o2.vy += ny * relVel * 0.5;
+              }
+            }
+          }
+        }
+      }
+
+      // Render
+      ctx.fillStyle = '#080a14'; ctx.fillRect(0, 0, 550, 800);
+
+      // Jar Container
+      ctx.strokeStyle = '#b967ff'; ctx.lineWidth = 4;
+      ctx.shadowColor = '#b967ff'; ctx.shadowBlur = 15;
+      ctx.beginPath();
+      ctx.moveTo(30, 110); ctx.lineTo(30, 760); ctx.lineTo(520, 760); ctx.lineTo(520, 110);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+
+      // Danger Line
+      ctx.strokeStyle = 'rgba(255,0,127,0.4)'; ctx.setLineDash([6, 6]);
+      ctx.beginPath(); ctx.moveTo(30, 110); ctx.lineTo(520, 110); ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Aim Line & Current Drop Orb
+      if (canDrop) {
+        ctx.strokeStyle = 'rgba(255,255,255,0.2)'; ctx.setLineDash([4, 4]);
+        ctx.beginPath(); ctx.moveTo(aimX, 80); ctx.lineTo(aimX, 760); ctx.stroke();
+        ctx.setLineDash([]);
+
+        const nConf = ORB_CONFIG[nextVal];
+        ctx.fillStyle = nConf.color;
+        ctx.shadowColor = nConf.color; ctx.shadowBlur = 15;
+        ctx.beginPath(); ctx.arc(aimX, 80, nConf.r, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#000'; ctx.font = 'bold 14px Segoe UI'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(nextVal, aimX, 80);
+        ctx.shadowBlur = 0;
+      }
+
+      // Draw Orbs
+      for (const o of orbs) {
+        const conf = ORB_CONFIG[o.val];
+        ctx.fillStyle = conf.color;
+        ctx.shadowColor = conf.color; ctx.shadowBlur = 12;
+        ctx.beginPath(); ctx.arc(o.x, o.y, o.r, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#000'; ctx.font = `bold ${Math.max(12, o.r * 0.45)}px Segoe UI`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(o.val, o.x, o.y);
+        ctx.shadowBlur = 0;
+      }
+
+      // Draw Particles
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx; p.y += p.vy; p.life -= 0.04;
+        if (p.life <= 0) { particles.splice(i, 1); continue; }
+        ctx.fillStyle = p.color; ctx.globalAlpha = p.life;
+        ctx.fillRect(p.x, p.y, 5, 5);
+        ctx.globalAlpha = 1;
+      }
+
+      requestAnimationFrame(loop);
+    }
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
