@@ -127,7 +127,8 @@
         // Top limit (Game Over) — only for orbs that have settled above danger line for 150+ frames
         if (o.age > 150 && o.y - o.r < 105 && Math.abs(o.vy) < 0.15 && Math.abs(o.vx) < 0.15) {
           isGameOver = true;
-          playPop(120, 0.4);
+          if (window.DopamineSynth) window.DopamineSynth.playWin();
+          if (window.DopamineJuice) window.DopamineJuice.explodeConfetti(window.innerWidth / 2, window.innerHeight * 0.4, 65);
           document.getElementById('final-score').textContent = score;
           document.getElementById('modal').style.display = 'flex';
           try {
@@ -152,7 +153,20 @@
               const newVal = o.val * 2;
               score += newVal;
               document.getElementById('score-val').textContent = score;
-              playPop(400 + Math.log2(newVal) * 80, 0.15);
+              const streak = Math.round(Math.log2(newVal));
+
+              if (window.DopamineSynth) {
+                window.DopamineSynth.playCombo(streak);
+              } else {
+                playPop(400 + Math.log2(newVal) * 80, 0.15);
+              }
+
+              if (window.DopamineJuice) {
+                window.DopamineJuice.spawnScore((o.x + o2.x) / 2, (o.y + o2.y) / 2, `+${newVal} 🧩`, streak);
+                if (newVal >= 512) {
+                  window.DopamineJuice.explodeConfetti((o.x + o2.x) / 2, (o.y + o2.y) / 2, 40);
+                }
+              }
 
               // Spawn merge particles
               for (let p=0; p<10; p++) {
