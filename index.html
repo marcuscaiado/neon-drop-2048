@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>Neon Drop 2048 🧩✨</title>
   <script src="arcade-sound-engine.js"></script>
+  <script src="arcade-difficulty.js"></script>
   <script src="arcade-leaderboard.js"></script>
   <style>
     * { margin:0; padding:0; box-sizing:border-box; touch-action:none; user-select:none; }
@@ -92,7 +93,8 @@
       nextVal = [2, 4, 8, 16][Math.floor(Math.random() * 4)];
       document.getElementById('next-val').textContent = nextVal;
 
-      setTimeout(() => canDrop = true, 450);
+      const dropCooldown = window.ArcadeDifficulty ? ArcadeDifficulty.scaleInterval(450, score, 3200, 250, 2.0) : 450;
+      setTimeout(() => canDrop = true, dropCooldown);
     }
 
     window.addEventListener('mousemove', e => setAim(e.clientX));
@@ -102,6 +104,7 @@
     window.addEventListener('touchend', e => { e.preventDefault(); triggerDrop(); }, { passive:false });
 
     function restartGame() {
+      if (window.ArcadeDifficulty) ArcadeDifficulty.reset();
       score = 0; nextVal = 2; orbs = []; particles = []; isGameOver = false;
       document.getElementById('score-val').textContent = '0';
       document.getElementById('next-val').textContent = '2';
